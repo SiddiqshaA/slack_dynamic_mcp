@@ -43,37 +43,42 @@ def get_token_from_service(user_id: str, provider: str = "slack") -> dict:
 def get_slack_client_from_context(ctx: Context, use_bot: bool = True, user_id: str = None) -> WebClient:
     """Get Slack client with token from Supabase, headers, or environment."""
     
-    # Priority 1: Fetch from Supabase if user_id provided
-    if user_id:
+    # Priority 1: For USER operations - Fetch from Supabase if user_id provided
+    if not use_bot and user_id:
         try:
             token_data = get_token_from_service(user_id, "slack")
+            token = token_data.get("access_token")
             
-            # Try to get bot_token from raw data if available
-            token = None
-            if use_bot:
-                # Check for bot token in various places
-                token = (token_data.get("bot_token") or 
-                        token_data.get("raw", {}).get("bot_token") or
-                        token_data.get("raw", {}).get("authed_user", {}).get("access_token"))
-            
-            # If still no token or not use_bot, try access_token
-            if not token:
-                token = token_data.get("access_token")
-            
-            if token:
-                # If we got a user token but need bot token, log warning and fall through
-                if use_bot and token.startswith("xoxp-"):
-                    print(f"Warning: Supabase returned user token (xoxp-) but bot token needed. Using fallback.")
-                    # Fall through to next priority
-                elif not use_bot and token.startswith("xoxp-"):
-                    # Perfect! User token for user operations
-                    print(f"Using user token from Supabase for user-level operation")
-                    return WebClient(token=token)
-                else:
-                    return WebClient(token=token)
+            if token and token.startswith("xoxp-"):
+                print(f"✅ Using user token from Supabase (user_id: {user_id[:8]}...)")
+                return WebClient(token=token)
+            else:
+                print(f"⚠️  No valid user token in Supabase for user_id: {user_id}")
                     
         except Exception as e:
-            print(f"Warning: Could not fetch token from service: {e}")
+            print(f"⚠️  Could not fetch token from Supabase: {e}")
+            print(f"   Please provide user_id manually...")
+            
+            # Prompt for user_id from terminal
+            try:
+                manual_user_id = input("\n📝 Enter Supabase user_id (or press Enter to skip): ").strip()
+                
+                if manual_user_id:
+                    print(f"   Attempting to fetch token for: {manual_user_id[:8]}...")
+                    token_data = get_token_from_service(manual_user_id, "slack")
+                    token = token_data.get("access_token")
+                    
+                    if token and token.startswith("xoxp-"):
+                        print(f"✅ Using user token from Supabase (manual user_id)")
+                        return WebClient(token=token)
+                    else:
+                        print(f"⚠️  No valid user token found for manual user_id")
+                else:
+                    print(f"   Skipping manual input, falling back to environment...")
+                    
+            except Exception as manual_error:
+                print(f"⚠️  Manual fetch failed: {manual_error}")
+                print(f"   Falling back to environment/header tokens...")
     
     # Priority 2: Try to get token from request headers
     if hasattr(ctx, 'request_context') and ctx.request_context:
@@ -91,21 +96,24 @@ def get_slack_client_from_context(ctx: Context, use_bot: bool = True, user_id: s
     # Priority 3: Fallback to environment variables for local development
     if use_bot:
         if SLACK_BOT_TOKEN:
+            print(f"✅ Using bot token from environment variables")
             return WebClient(token=SLACK_BOT_TOKEN)
         raise ValueError(
-            "Slack Bot Token not provided. Options:\n"
-            "1) Store bot token in Supabase (currently has user token xoxp-)\n"
+            "❌ Slack Bot Token not provided. Options:\n"
+            "1) Set SLACK_BOT_TOKEN in .env file\n"
             "2) Provide X-Slack-Bot-Token header\n"
-            "3) Set SLACK_BOT_TOKEN env var"
+            "3) Pass user_id with bot token in Supabase"
         )
     else:
         if SLACK_USER_TOKEN:
+            print(f"✅ Using user token from environment variables")
             return WebClient(token=SLACK_USER_TOKEN)
         raise ValueError(
-            "Slack User Token not provided. Options:\n"
-            "1) Provide user_id parameter\n"
+            "❌ Slack User Token not provided. Options:\n"
+            "1) Provide user_id parameter (recommended)\n"
             "2) Send X-Slack-User-Token header\n"
-            "3) Set SLACK_USER_TOKEN env var"
+            "3) Set SLACK_USER_TOKEN in .env file\n\n"
+            "💡 Tip: Pass user_id='your-supabase-user-id' to fetch token automatically"
         )
 
 # BOT token
