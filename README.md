@@ -1,5 +1,7 @@
 # Slack MCP Server - Quick Guide
 
+# Deployed MCP link - https://dynamic.fastmcp.app/mcp
+
 ## Server URL
 ```
 http://localhost:8000/sse
